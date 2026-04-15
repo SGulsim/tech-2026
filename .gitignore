@@ -23,3 +23,5 @@ env/
 # Misc
 mnt/
 .claude/
+
+node_modules
