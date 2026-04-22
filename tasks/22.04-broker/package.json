@@ -1,0 +1,22 @@
+{
+  "name": "broker-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "benchmark": "ts-node src/benchmark.ts",
+    "benchmark:basic": "ts-node src/benchmark.ts basic",
+    "benchmark:size": "ts-node src/benchmark.ts size",
+    "benchmark:rate": "ts-node src/benchmark.ts rate",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "amqplib": "^0.10.4",
+    "ioredis": "^5.3.2"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.5",
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}

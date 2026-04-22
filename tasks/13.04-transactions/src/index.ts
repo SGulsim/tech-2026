@@ -26,7 +26,7 @@ async function waitForDb(retries = 10, delayMs = 3000): Promise<void> {
       await AppDataSource.initialize();
       console.log("Connected to database");
       return;
-    } catch (err) {
+    } catch {
       console.log(`DB not ready (attempt ${i}/${retries}), retrying in ${delayMs / 1000}s…`);
       await new Promise((r) => setTimeout(r, delayMs));
     }

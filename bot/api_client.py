@@ -45,9 +45,50 @@ class BackendClient:
 
     async def get_user(self, telegram_id: int) -> Optional[dict]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.get(
-                f"{self.base_url}/api/v1/users/{telegram_id}"
+            response = await client.get(f"{self.base_url}/api/v1/users/{telegram_id}")
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+
+    async def get_profile(self, telegram_id: int) -> Optional[dict]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(f"{self.base_url}/api/v1/profiles/{telegram_id}")
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return response.json()
+
+    async def create_profile(self, data: dict) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/profiles",
+                json=data,
             )
+            response.raise_for_status()
+            return response.json()
+
+    async def update_profile(self, telegram_id: int, data: dict) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.put(
+                f"{self.base_url}/api/v1/profiles/{telegram_id}",
+                json=data,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def upload_photo(self, telegram_id: int, photo_bytes: bytes, filename: str = "photo.jpg") -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/profiles/{telegram_id}/photos",
+                files={"photo": (filename, photo_bytes, "image/jpeg")},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_next_profile(self, telegram_id: int) -> Optional[dict]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(f"{self.base_url}/api/v1/browse/{telegram_id}")
             if response.status_code == 404:
                 return None
             response.raise_for_status()

@@ -79,6 +79,7 @@ services:
     env_file: .env
     depends_on:
       - backend
+      - rabbitmq
     volumes:
       - ./bot:/app
     command: python main.py

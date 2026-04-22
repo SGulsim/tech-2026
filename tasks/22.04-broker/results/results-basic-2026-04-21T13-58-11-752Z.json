@@ -1,0 +1,32 @@
+[
+  {
+    "broker": "rabbitmq",
+    "label": "Basic 1KB @1k/s",
+    "messageSizeBytes": 1024,
+    "targetRatePerSec": 1000,
+    "durationSeconds": 20,
+    "sent": 19650,
+    "received": 19650,
+    "lost": 0,
+    "errors": 0,
+    "actualRatePerSec": 980,
+    "avgLatencyMs": 5.9,
+    "p95LatencyMs": 10,
+    "maxLatencyMs": 18
+  },
+  {
+    "broker": "redis",
+    "label": "Basic 1KB @1k/s",
+    "messageSizeBytes": 1024,
+    "targetRatePerSec": 1000,
+    "durationSeconds": 20,
+    "sent": 19650,
+    "received": 19650,
+    "lost": 0,
+    "errors": 0,
+    "actualRatePerSec": 981,
+    "avgLatencyMs": 5,
+    "p95LatencyMs": 8,
+    "maxLatencyMs": 21
+  }
+]

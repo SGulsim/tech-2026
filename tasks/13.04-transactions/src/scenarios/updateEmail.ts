@@ -9,7 +9,7 @@ import { Customer } from "../entity/Customer";
 export async function updateCustomerEmail(
   dataSource: DataSource,
   customerId: number,
-  newEmail: string
+  newEmail: string,
 ): Promise<Customer> {
   return dataSource.transaction(async (manager) => {
     const customer = await manager.findOne(Customer, { where: { customerId } });
@@ -19,7 +19,9 @@ export async function updateCustomerEmail(
     customer.email = newEmail;
     await manager.save(customer);
 
-    console.log(`[Scenario 2] Customer #${customerId} email: ${oldEmail} → ${newEmail}`);
+    console.log(
+      `[Scenario 2] Customer #${customerId} email: ${oldEmail} → ${newEmail}`,
+    );
     return customer;
   });
 }
