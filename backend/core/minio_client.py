@@ -1,5 +1,7 @@
 import asyncio
 import io
+from datetime import timedelta
+from typing import Optional
 
 import structlog
 from minio import Minio
@@ -9,7 +11,9 @@ from core.config import settings
 
 logger = structlog.get_logger(__name__)
 
-_client: Minio | None = None
+_client: Optional[Minio] = None
+
+PRESIGNED_EXPIRES = timedelta(hours=1)
 
 
 def _get_client() -> Minio:
@@ -27,13 +31,22 @@ def _get_client() -> Minio:
 async def init_minio() -> None:
     def _setup() -> None:
         client = _get_client()
-        if not client.bucket_exists(settings.minio_bucket):
-            client.make_bucket(settings.minio_bucket)
-            logger.info("minio_bucket_created", bucket=settings.minio_bucket)
+        bucket = settings.minio_bucket
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
+            logger.info("minio_bucket_created", bucket=bucket)
         else:
-            logger.info("minio_bucket_exists", bucket=settings.minio_bucket)
+            logger.info("minio_bucket_exists", bucket=bucket)
 
     await asyncio.to_thread(_setup)
+
+
+async def get_presigned_url(key: str) -> str:
+    def _sign() -> str:
+        return _get_client().presigned_get_object(
+            settings.minio_bucket, key, expires=PRESIGNED_EXPIRES
+        )
+    return await asyncio.to_thread(_sign)
 
 
 async def upload_photo(key: str, data: bytes, content_type: str = "image/jpeg") -> str:

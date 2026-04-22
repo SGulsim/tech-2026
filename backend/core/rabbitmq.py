@@ -1,5 +1,5 @@
 import json
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Optional
 
 import aio_pika
 import structlog
@@ -11,8 +11,8 @@ logger = structlog.get_logger(__name__)
 QUEUE_ACTIONS = "profile.actions"
 QUEUE_NOTIFICATIONS = "bot.notifications"
 
-_connection: aio_pika.RobustConnection | None = None
-_channel: aio_pika.Channel | None = None
+_connection: Optional[aio_pika.RobustConnection] = None
+_channel: Optional[aio_pika.Channel] = None
 
 
 async def init_rabbitmq() -> None:

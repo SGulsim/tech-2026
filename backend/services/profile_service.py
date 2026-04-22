@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
+from core.minio_client import get_presigned_url
 from models.profile import Profile, ProfilePhoto
 from models.user import User
 from schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
@@ -27,9 +28,10 @@ def _calc_completeness(profile: Profile) -> float:
         score += 15
     if profile.preferences:
         score += 10
-    if profile.photo_count >= 1:
+    photo_count = profile.photo_count or 0
+    if photo_count >= 1:
         score += 15
-    if profile.photo_count >= 3:
+    if photo_count >= 3:
         score += 10
     return min(score, 100.0)
 
@@ -165,5 +167,5 @@ class ProfileService:
 
         resp = ProfileResponse.model_validate(profile)
         resp.telegram_id = telegram_id
-        resp.photos = [p.url for p in photos]
+        resp.photos = [await get_presigned_url(p.s3_key) for p in photos]
         return resp

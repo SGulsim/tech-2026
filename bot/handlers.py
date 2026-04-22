@@ -1,8 +1,11 @@
+from typing import Optional
+
+import httpx
 import structlog
 from aiogram import Bot, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from api_client import backend_client
 from keyboards import (
@@ -21,6 +24,17 @@ from states import ProfileCreation, ProfileEdit
 
 router = Router()
 logger = structlog.get_logger(__name__)
+
+
+async def _download_photo(url: str) -> Optional[bytes]:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            return r.content
+    except Exception as exc:
+        logger.warning("photo_download_failed", url=url, error=str(exc))
+        return None
 
 _GENDER_MAP = {
     "Мужской": "male",
@@ -155,10 +169,14 @@ async def _show_own_profile(message: Message, profile: dict) -> None:
     )
     photos = profile.get("photos", [])
     if photos:
-        await message.answer_photo(photo=photos[0], caption=text, parse_mode="HTML",
-                                   reply_markup=profile_actions_keyboard())
-    else:
-        await message.answer(text, parse_mode="HTML", reply_markup=profile_actions_keyboard())
+        photo_bytes = await _download_photo(photos[0])
+        if photo_bytes:
+            await message.answer_photo(
+                photo=BufferedInputFile(photo_bytes, filename="photo.jpg"),
+                caption=text, parse_mode="HTML", reply_markup=profile_actions_keyboard(),
+            )
+            return
+    await message.answer(text, parse_mode="HTML", reply_markup=profile_actions_keyboard())
 
 
 # ─────────────────────────────────────────────
@@ -337,9 +355,14 @@ async def _render_profile_card(message: Message, profile: dict) -> None:
     photos = profile.get("photos", [])
 
     if photos:
-        await message.answer_photo(photo=photos[0], caption=text, parse_mode="HTML", reply_markup=keyboard)
-    else:
-        await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+        photo_bytes = await _download_photo(photos[0])
+        if photo_bytes:
+            await message.answer_photo(
+                photo=BufferedInputFile(photo_bytes, filename="photo.jpg"),
+                caption=text, parse_mode="HTML", reply_markup=keyboard,
+            )
+            return
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
 
 # ─────────────────────────────────────────────

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +30,7 @@ async def get_next_profile(telegram_id: int, db: AsyncSession = Depends(get_db))
     user = user_result.scalar_one_or_none()
 
     # Определяем предпочтение по полу из анкеты
-    gender_pref: str | None = None
+    gender_pref: Optional[str] = None
     if own_profile.preferences:
         prefs_lower = own_profile.preferences.lower()
         if "male" in prefs_lower or "парн" in prefs_lower or "муж" in prefs_lower:

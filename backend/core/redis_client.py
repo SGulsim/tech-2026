@@ -1,3 +1,5 @@
+from typing import Optional
+
 import redis.asyncio as aioredis
 import structlog
 
@@ -5,7 +7,7 @@ from core.config import settings
 
 logger = structlog.get_logger(__name__)
 
-_redis: aioredis.Redis | None = None
+_redis: Optional[aioredis.Redis] = None
 
 
 async def init_redis() -> None:
