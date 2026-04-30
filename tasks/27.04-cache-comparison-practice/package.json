@@ -1,0 +1,20 @@
+{
+  "name": "cache-comparison",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "benchmark": "ts-node src/benchmark.ts",
+    "writeback-demo": "ts-node src/writeback-demo.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "ioredis": "^5.3.2",
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pg": "^8.11.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0"
+  }
+}
