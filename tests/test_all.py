@@ -440,3 +440,455 @@ class TestBackendClient:
             result = await client.get_user(99999)
 
         assert result is None
+
+
+# ════════════════════════════════════════════════════════════
+# RATINGSERVICE — юнит-тесты (этап 3/4)
+# ════════════════════════════════════════════════════════════
+
+class TestRatingService:
+
+    async def _create_user_and_profile(self, db, telegram_id: int, **profile_kwargs):
+        from services.user_service import UserService
+        from services.profile_service import ProfileService
+        from schemas.user import UserCreate
+        from schemas.profile import ProfileCreate
+
+        user_svc = UserService(db)
+        user = await user_svc.register(UserCreate(telegram_id=telegram_id, first_name="Test"))
+        await db.flush()
+
+        profile_svc = ProfileService(db)
+        defaults = dict(
+            telegram_id=telegram_id,
+            name="Тест",
+            age=25,
+            gender="female",
+            city="Алматы",
+        )
+        defaults.update(profile_kwargs)
+        profile = await profile_svc.create(ProfileCreate(**defaults))
+        await db.flush()
+        return user, profile
+
+    async def test_calculate_creates_rating_record(self, db):
+        """calculate_and_save создаёт запись Rating для новой анкеты."""
+        from sqlalchemy import select
+        from services.rating_service import RatingService
+        from models.rating import Rating
+
+        _, profile = await self._create_user_and_profile(db, telegram_id=6001)
+
+        svc = RatingService(db)
+        rating = await svc.calculate_and_save(profile.id)
+        await db.flush()
+
+        result = await db.execute(select(Rating).where(Rating.profile_id == profile.id))
+        saved = result.scalar_one_or_none()
+
+        assert saved is not None
+        assert saved.final_score == rating.final_score
+
+    async def test_completeness_full_profile(self, db):
+        """Анкета со всеми полями (без фото) получает score >= 75."""
+        from services.rating_service import RatingService
+
+        _, profile = await self._create_user_and_profile(
+            db,
+            telegram_id=6002,
+            bio="Привет, меня зовут Тест и я люблю кофе!",
+            interests="книги, музыка, спорт",
+            preferences="ищу мужчину",
+        )
+        svc = RatingService(db)
+        rating = await svc.calculate_and_save(profile.id)
+
+        assert rating.level1_score >= 75.0
+
+    async def test_completeness_minimal_profile(self, db):
+        """Анкета с минимальными полями получает score < 75."""
+        from services.profile_service import ProfileService
+        from services.user_service import UserService
+        from services.rating_service import RatingService
+        from schemas.user import UserCreate
+        from schemas.profile import ProfileCreate
+
+        user_svc = UserService(db)
+        user = await user_svc.register(UserCreate(telegram_id=6003, first_name="T"))
+        await db.flush()
+
+        profile_svc = ProfileService(db)
+        profile = await profile_svc.create(ProfileCreate(
+            telegram_id=6003,
+            name="T",
+            age=20,
+            gender="male",
+            city="Нур-Султан",
+        ))
+        await db.flush()
+
+        svc = RatingService(db)
+        rating = await svc.calculate_and_save(profile.id)
+
+        assert rating.level1_score < 75.0
+
+    async def test_calculate_update_on_second_call(self, db):
+        """Повторный вызов обновляет existing Rating, не создаёт дубль."""
+        from sqlalchemy import select, func
+        from services.rating_service import RatingService
+        from models.rating import Rating
+
+        _, profile = await self._create_user_and_profile(db, telegram_id=6004)
+
+        svc = RatingService(db)
+        await svc.calculate_and_save(profile.id)
+        await db.flush()
+        await svc.calculate_and_save(profile.id)
+        await db.flush()
+
+        count_result = await db.execute(
+            select(func.count()).where(Rating.profile_id == profile.id)
+        )
+        assert count_result.scalar() == 1
+
+    async def test_final_score_formula(self, db):
+        """final_score = level1*0.35 + level2*0.50 + referral*0.15."""
+        from services.rating_service import RatingService
+
+        _, profile = await self._create_user_and_profile(db, telegram_id=6005)
+
+        svc = RatingService(db)
+        rating = await svc.calculate_and_save(profile.id)
+
+        expected = rating.level1_score * 0.35 + rating.level2_score * 0.50 + rating.referral_bonus * 0.15
+        assert abs(rating.final_score - expected) < 0.001
+
+
+# ════════════════════════════════════════════════════════════
+# LIKESERVICE — юнит-тесты (этап 3/4)
+# ════════════════════════════════════════════════════════════
+
+class TestLikeService:
+
+    async def _setup_two_users(self, db):
+        """Создаёт двух пользователей с анкетами. Возвращает (user1, profile1, user2, profile2)."""
+        from services.user_service import UserService
+        from services.profile_service import ProfileService
+        from schemas.user import UserCreate
+        from schemas.profile import ProfileCreate
+
+        user_svc = UserService(db)
+        profile_svc = ProfileService(db)
+
+        u1 = await user_svc.register(UserCreate(telegram_id=7001, first_name="Алия"))
+        await db.flush()
+        p1 = await profile_svc.create(ProfileCreate(
+            telegram_id=7001, name="Алия", age=23, gender="female", city="Алматы"
+        ))
+        await db.flush()
+
+        u2 = await user_svc.register(UserCreate(telegram_id=7002, first_name="Данияр"))
+        await db.flush()
+        p2 = await profile_svc.create(ProfileCreate(
+            telegram_id=7002, name="Данияр", age=26, gender="male", city="Алматы"
+        ))
+        await db.flush()
+
+        return u1, p1, u2, p2
+
+    async def test_like_creates_record(self, db):
+        """process_action с is_skip=False создаёт запись лайка."""
+        from sqlalchemy import select
+        from services.like_service import LikeService
+        from models.like import Like
+
+        u1, p1, u2, p2 = await self._setup_two_users(db)
+
+        with patch("services.like_service.publish", new=AsyncMock()):
+            svc = LikeService(db)
+            await svc.process_action(
+                from_telegram_id=u1.telegram_id,
+                to_profile_id=p2.id,
+                is_skip=False,
+            )
+            await db.flush()
+
+        result = await db.execute(
+            select(Like).where(Like.from_user_id == u1.id, Like.to_profile_id == p2.id)
+        )
+        like = result.scalar_one_or_none()
+        assert like is not None
+        assert like.is_skip is False
+
+    async def test_skip_creates_record(self, db):
+        """process_action с is_skip=True создаёт запись скипа."""
+        from sqlalchemy import select
+        from services.like_service import LikeService
+        from models.like import Like
+
+        u1, p1, u2, p2 = await self._setup_two_users(db)
+
+        with patch("services.like_service.publish", new=AsyncMock()):
+            svc = LikeService(db)
+            await svc.process_action(
+                from_telegram_id=u1.telegram_id,
+                to_profile_id=p2.id,
+                is_skip=True,
+            )
+            await db.flush()
+
+        result = await db.execute(
+            select(Like).where(Like.from_user_id == u1.id, Like.to_profile_id == p2.id)
+        )
+        like = result.scalar_one_or_none()
+        assert like is not None
+        assert like.is_skip is True
+
+    async def test_duplicate_like_ignored(self, db):
+        """Второй лайк той же анкеты не создаёт дубль."""
+        from sqlalchemy import select, func
+        from services.like_service import LikeService
+        from models.like import Like
+
+        u1, p1, u2, p2 = await self._setup_two_users(db)
+
+        with patch("services.like_service.publish", new=AsyncMock()):
+            svc = LikeService(db)
+            await svc.process_action(u1.telegram_id, p2.id, is_skip=False)
+            await db.flush()
+            await svc.process_action(u1.telegram_id, p2.id, is_skip=False)
+            await db.flush()
+
+        count = await db.execute(
+            select(func.count()).where(
+                Like.from_user_id == u1.id,
+                Like.to_profile_id == p2.id,
+            )
+        )
+        assert count.scalar() == 1
+
+    async def test_mutual_like_creates_match(self, db):
+        """Взаимный лайк создаёт мэтч и публикует событие в очередь."""
+        from sqlalchemy import select
+        from services.like_service import LikeService
+        from models.match import Match
+
+        u1, p1, u2, p2 = await self._setup_two_users(db)
+
+        mock_publish = AsyncMock()
+        with patch("services.like_service.publish", new=mock_publish):
+            svc = LikeService(db)
+            await svc.process_action(u1.telegram_id, p2.id, is_skip=False)
+            await db.flush()
+            await svc.process_action(u2.telegram_id, p1.id, is_skip=False)
+            await db.flush()
+
+        result = await db.execute(
+            select(Match).where(
+                ((Match.user1_id == u1.id) & (Match.user2_id == u2.id))
+                | ((Match.user1_id == u2.id) & (Match.user2_id == u1.id))
+            )
+        )
+        match = result.scalar_one_or_none()
+        assert match is not None
+        assert mock_publish.called
+
+    async def test_no_match_on_skip(self, db):
+        """Лайк + скип не создаёт мэтч."""
+        from sqlalchemy import select
+        from services.like_service import LikeService
+        from models.match import Match
+
+        u1, p1, u2, p2 = await self._setup_two_users(db)
+
+        with patch("services.like_service.publish", new=AsyncMock()):
+            svc = LikeService(db)
+            await svc.process_action(u1.telegram_id, p2.id, is_skip=False)
+            await db.flush()
+            await svc.process_action(u2.telegram_id, p1.id, is_skip=True)
+            await db.flush()
+
+        result = await db.execute(select(Match))
+        matches = result.scalars().all()
+        assert len(matches) == 0
+
+    async def test_unknown_user_returns_none(self, db):
+        """Лайк от несуществующего пользователя не падает, возвращает None."""
+        from services.like_service import LikeService
+
+        with patch("services.like_service.publish", new=AsyncMock()):
+            svc = LikeService(db)
+            result = await svc.process_action(
+                from_telegram_id=99999,
+                to_profile_id=1,
+                is_skip=False,
+            )
+
+        assert result is None
+
+
+# ════════════════════════════════════════════════════════════
+# CACHESERVICE — юнит-тесты с fakeredis (этап 3/4)
+# ════════════════════════════════════════════════════════════
+
+class TestCacheService:
+
+    def _make_redis(self):
+        import fakeredis
+        return fakeredis.FakeRedis(decode_responses=True)
+
+    async def test_fill_and_get_next(self):
+        """fill_queue + get_next_profile_id возвращают профили в порядке FIFO."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        await svc.fill_queue(user_id=1, profile_ids=[10, 20, 30])
+
+        assert await svc.get_next_profile_id(1) == 10
+        assert await svc.get_next_profile_id(1) == 20
+        assert await svc.get_next_profile_id(1) == 30
+
+    async def test_get_next_empty_returns_none(self):
+        """Пустая очередь возвращает None."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        result = await svc.get_next_profile_id(999)
+        assert result is None
+
+    async def test_needs_refill_true_when_empty(self):
+        """Пустая очередь требует дозаполнения."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        assert await svc.needs_refill(1) is True
+
+    async def test_needs_refill_false_when_full(self):
+        """Очередь с >= 3 элементами не требует дозаполнения."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        await svc.fill_queue(user_id=1, profile_ids=[1, 2, 3, 4, 5])
+
+        assert await svc.needs_refill(1) is False
+
+    async def test_needs_refill_true_when_below_threshold(self):
+        """Очередь с < 3 элементами требует дозаполнения."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        await svc.fill_queue(user_id=1, profile_ids=[1, 2])
+
+        assert await svc.needs_refill(1) is True
+
+    async def test_clear_queue(self):
+        """clear_queue удаляет все элементы из очереди."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        await svc.fill_queue(user_id=1, profile_ids=[10, 20, 30])
+        await svc.clear_queue(user_id=1)
+
+        assert await svc.queue_size(1) == 0
+
+    async def test_different_users_isolated(self):
+        """Очереди разных пользователей не пересекаются."""
+        import fakeredis.aioredis
+        from services.cache_service import CacheService
+
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        svc = CacheService(redis)
+
+        await svc.fill_queue(user_id=1, profile_ids=[100, 200])
+        await svc.fill_queue(user_id=2, profile_ids=[300, 400])
+
+        assert await svc.get_next_profile_id(1) == 100
+        assert await svc.get_next_profile_id(2) == 300
+
+
+# ════════════════════════════════════════════════════════════
+# BROWSE ENDPOINT — интеграционные тесты (этап 3/4)
+# ════════════════════════════════════════════════════════════
+
+class TestBrowseEndpoint:
+
+    async def test_browse_without_profile_returns_400(self, api):
+        """Пользователь без анкеты получает 400."""
+        await api.post("/api/v1/users/register", json={
+            "telegram_id": 8001,
+            "first_name": "БезАнкеты",
+        })
+        r = await api.get("/api/v1/browse/8001")
+        assert r.status_code == 400
+        assert "анкету" in r.json()["detail"].lower()
+
+    async def test_browse_unregistered_user_returns_400(self, api):
+        """Незарегистрированный пользователь получает 400."""
+        r = await api.get("/api/v1/browse/99998888")
+        assert r.status_code == 400
+
+    async def test_browse_returns_profile_from_cache(self, api):
+        """Browse возвращает анкету при наличии профиля в кэше."""
+        import fakeredis.aioredis
+
+        # Создаём просмотрщика
+        await api.post("/api/v1/users/register", json={"telegram_id": 8002, "first_name": "Viewer"})
+        await api.post("/api/v1/profiles", json={
+            "telegram_id": 8002, "name": "Алия", "age": 24,
+            "gender": "female", "city": "Алматы",
+        })
+
+        # Создаём цель
+        await api.post("/api/v1/users/register", json={"telegram_id": 8003, "first_name": "Target"})
+        r = await api.post("/api/v1/profiles", json={
+            "telegram_id": 8003, "name": "Данияр", "age": 27,
+            "gender": "male", "city": "Алматы",
+        })
+        target_id = r.json()["id"]
+
+        # Мокируем Redis с уже загруженной анкетой в кэше
+        fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        await fake_redis.rpush("browse:8002", str(target_id))
+
+        with patch("api.routes.browse.get_redis", return_value=fake_redis):
+            r = await api.get("/api/v1/browse/8002")
+
+        assert r.status_code == 200
+        assert r.json()["name"] == "Данияр"
+
+    async def test_browse_empty_cache_no_profiles_returns_404(self, api):
+        """Когда нет подходящих анкет, возвращает 404."""
+        import fakeredis.aioredis
+
+        await api.post("/api/v1/users/register", json={"telegram_id": 8004, "first_name": "Solo"})
+        await api.post("/api/v1/profiles", json={
+            "telegram_id": 8004, "name": "Один", "age": 30,
+            "gender": "male", "city": "Шымкент",
+        })
+
+        # Пустой fakeredis — нет анкет в кэше, ранжировщик вернёт пустой список
+        fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+        with patch("api.routes.browse.get_redis", return_value=fake_redis):
+            with patch("services.rating_service.RatingService.get_ranked_profiles", new=AsyncMock(return_value=[])):
+                r = await api.get("/api/v1/browse/8004")
+
+        assert r.status_code == 404

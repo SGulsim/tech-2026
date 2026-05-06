@@ -86,6 +86,26 @@ def browse_keyboard(profile_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def settings_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Сменить предпочтения поиска", callback_data="settings:preferences")],
+            [InlineKeyboardButton(text="🗑 Удалить анкету", callback_data="settings:delete")],
+        ]
+    )
+
+
+def confirm_delete_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, удалить", callback_data="settings:delete_confirm"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="settings:delete_cancel"),
+            ]
+        ]
+    )
+
+
 def edit_profile_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 import models  # noqa: F401 — регистрируем все модели до init_db
 from api.routes.browse import router as browse_router
@@ -87,6 +88,8 @@ app.add_middleware(
 app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(browse_router)
+
+Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
 @app.get("/health", tags=["health"])

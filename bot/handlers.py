@@ -10,17 +10,19 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 from api_client import backend_client
 from keyboards import (
     browse_keyboard,
+    confirm_delete_keyboard,
     edit_profile_keyboard,
     gender_keyboard,
     main_menu_keyboard,
     preferences_keyboard,
     profile_actions_keyboard,
     remove_keyboard,
+    settings_keyboard,
     skip_keyboard,
     welcome_keyboard,
 )
 from mq_client import publish_action
-from states import ProfileCreation, ProfileEdit
+from states import ProfileCreation, ProfileEdit, Settings
 
 router = Router()
 logger = structlog.get_logger(__name__)
@@ -564,5 +566,77 @@ async def menu_invite(message: Message) -> None:
 
 
 @router.message(lambda m: m.text == "⚙️ Настройки")
-async def menu_settings(message: Message) -> None:
-    await message.answer("⚙️ Настройки появятся в следующем этапе.")
+async def menu_settings(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("⚙️ <b>Настройки</b>", parse_mode="HTML", reply_markup=settings_keyboard())
+
+
+@router.callback_query(lambda c: c.data == "settings:preferences")
+async def cb_settings_preferences(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("Кого хочешь видеть в ленте?", reply_markup=preferences_keyboard())
+    await state.set_state(Settings.changing_preferences)
+    await callback.answer()
+
+
+@router.message(Settings.changing_preferences)
+async def fsm_settings_preferences(message: Message, state: FSMContext) -> None:
+    pref = _PREFS_MAP.get(message.text.strip())
+    if not pref:
+        await message.answer("Выбери один из вариантов:", reply_markup=preferences_keyboard())
+        return
+
+    try:
+        await backend_client.update_profile(message.from_user.id, {"preferences": pref})
+    except Exception as exc:
+        logger.error("settings_preferences_error", error=str(exc))
+        await message.answer("😔 Ошибка при обновлении. Попробуй позже.", reply_markup=main_menu_keyboard())
+        await state.clear()
+        return
+
+    await state.clear()
+    labels = {"female": "девушек", "male": "парней", "any": "всех"}
+    await message.answer(
+        f"✅ Готово! Теперь в ленте будут показываться анкеты: <b>{labels[pref]}</b>.",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@router.callback_query(lambda c: c.data == "settings:delete")
+async def cb_settings_delete(callback: CallbackQuery) -> None:
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+        "⚠️ Ты уверен? Анкета будет удалена безвозвратно.",
+        reply_markup=confirm_delete_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "settings:delete_confirm")
+async def cb_settings_delete_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.delete(
+                f"{backend_client.base_url}/api/v1/profiles/{callback.from_user.id}"
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        logger.error("delete_profile_error", error=str(exc))
+        await callback.message.edit_text("😔 Ошибка при удалении. Попробуй позже.")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        "🗑 Анкета удалена. Если захочешь вернуться — просто напиши /profile.",
+    )
+    await callback.message.answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "settings:delete_cancel")
+async def cb_settings_delete_cancel(callback: CallbackQuery) -> None:
+    await callback.message.edit_text("Удаление отменено.")
+    await callback.message.answer("⚙️ <b>Настройки</b>", parse_mode="HTML", reply_markup=settings_keyboard())
+    await callback.answer()

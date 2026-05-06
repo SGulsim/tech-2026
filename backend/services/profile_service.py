@@ -1,11 +1,13 @@
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
 from core.minio_client import get_presigned_url
+from models.like import Like
 from models.profile import Profile, ProfilePhoto
+from models.rating import Rating
 from models.user import User
 from schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
 
@@ -129,6 +131,10 @@ class ProfileService:
         profile = result.scalar_one_or_none()
         if not profile:
             return False
+        await self.db.execute(delete(ProfilePhoto).where(ProfilePhoto.profile_id == profile.id))
+        await self.db.execute(delete(Rating).where(Rating.profile_id == profile.id))
+        await self.db.execute(delete(Like).where(Like.to_profile_id == profile.id))
+        await self.db.execute(delete(Like).where(Like.from_user_id == user.id))
         await self.db.delete(profile)
         await self.db.flush()
         return True
@@ -165,7 +171,13 @@ class ProfileService:
         )
         photos = photos_result.scalars().all()
 
+        rating_result = await self.db.execute(
+            select(Rating).where(Rating.profile_id == profile.id)
+        )
+        rating = rating_result.scalar_one_or_none()
+
         resp = ProfileResponse.model_validate(profile)
         resp.telegram_id = telegram_id
         resp.photos = [await get_presigned_url(p.s3_key) for p in photos]
+        resp.rating_score = rating.final_score if rating else None
         return resp

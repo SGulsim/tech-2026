@@ -15,3 +15,7 @@ class ProfileCreation(StatesGroup):
 class ProfileEdit(StatesGroup):
     choosing_field = State()
     editing_value = State()
+
+
+class Settings(StatesGroup):
+    changing_preferences = State()

@@ -32,21 +32,33 @@ async def start_notification_consumer(bot) -> None:
     logger.info("notification_consumer_started")
 
 
+def _contact_link(name: str, username: str | None, telegram_id: int | None) -> str:
+    display = f"@{username}" if username else name
+    if telegram_id:
+        return f'<a href="tg://user?id={telegram_id}">{display}</a>'
+    return display
+
+
 async def _handle_match(bot, payload: dict) -> None:
     user1_id = payload.get("user1_telegram_id")
     user2_id = payload.get("user2_telegram_id")
     user1_name = payload.get("user1_name", "Аноним")
     user2_name = payload.get("user2_name", "Аноним")
+    user1_username = payload.get("user1_username")
+    user2_username = payload.get("user2_username")
+
+    user1_link = _contact_link(user1_name, user1_username, user1_id)
+    user2_link = _contact_link(user2_name, user2_username, user2_id)
 
     text_for_user1 = (
         f"🎉 <b>Мэтч!</b>\n\n"
         f"Вам понравились друг другу с <b>{user2_name}</b>!\n"
-        "Можно начинать общаться 💬"
+        f"Написать: {user2_link} 💬"
     )
     text_for_user2 = (
         f"🎉 <b>Мэтч!</b>\n\n"
         f"Вам понравились друг другу с <b>{user1_name}</b>!\n"
-        "Можно начинать общаться 💬"
+        f"Написать: {user1_link} 💬"
     )
 
     if user1_id:

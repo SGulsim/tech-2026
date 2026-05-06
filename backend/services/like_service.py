@@ -103,6 +103,8 @@ class LikeService:
             "user2_telegram_id": target_user.telegram_id if target_user else None,
             "user1_name": own_profile.name or "Аноним",
             "user2_name": target_profile.name or "Аноним",
+            "user1_username": user.username,
+            "user2_username": target_user.username if target_user else None,
         }
         await publish(QUEUE_NOTIFICATIONS, match_event)
         logger.info("match_created", user1=user.id, user2=target_profile.user_id)

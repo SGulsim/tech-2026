@@ -58,6 +58,8 @@ async def delete_profile(telegram_id: int, db: AsyncSession = Depends(get_db)):
     deleted = await svc.delete(telegram_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Profile not found")
+    cache_svc = CacheService(get_redis())
+    await cache_svc.clear_queue(telegram_id)
 
 
 @router.post("/{telegram_id}/photos", response_model=ProfileResponse)

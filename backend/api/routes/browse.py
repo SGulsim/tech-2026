@@ -46,6 +46,9 @@ async def get_next_profile(telegram_id: int, db: AsyncSession = Depends(get_db))
             gender_pref=gender_pref,
             limit=10,
         )
+        # Исключаем уже выданные анкеты из Redis-сета (лайк мог ещё не дойти до БД)
+        redis_seen = await cache_svc.get_seen_ids(telegram_id)
+        ranked_ids = [pid for pid in ranked_ids if pid not in redis_seen]
         await cache_svc.fill_queue(telegram_id, ranked_ids)
 
     # Берём следующую анкету из кэша (до 5 попыток на случай удалённых)

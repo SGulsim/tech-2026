@@ -9,3 +9,5 @@ redis[asyncio]==5.0.3
 aio-pika==9.4.1
 minio==7.2.7
 python-multipart==0.0.9
+celery[redis]>=5.3.6
+prometheus-fastapi-instrumentator>=6.3.0

@@ -7,7 +7,9 @@ from core.logging import get_logger
 logger = get_logger(__name__)
 
 _BROWSE_KEY = "browse:{user_id}"
+_SEEN_KEY = "seen:{user_id}"
 _BROWSE_TTL = 3600
+_SEEN_TTL = 7 * 24 * 3600  # 7 дней — дольше чем TTL очереди
 _REFILL_THRESHOLD = 3
 
 
@@ -18,9 +20,24 @@ class CacheService:
     def _key(self, user_id: int) -> str:
         return _BROWSE_KEY.format(user_id=user_id)
 
+    def _seen_key(self, user_id: int) -> str:
+        return _SEEN_KEY.format(user_id=user_id)
+
     async def get_next_profile_id(self, user_id: int) -> Optional[int]:
         val = await self.redis.lpop(self._key(user_id))
-        return int(val) if val is not None else None
+        if val is None:
+            return None
+        pid = int(val)
+        # Фиксируем как просмотренный сразу при выдаче — до записи лайка в БД
+        pipe = self.redis.pipeline()
+        pipe.sadd(self._seen_key(user_id), pid)
+        pipe.expire(self._seen_key(user_id), _SEEN_TTL)
+        await pipe.execute()
+        return pid
+
+    async def get_seen_ids(self, user_id: int) -> set[int]:
+        members = await self.redis.smembers(self._seen_key(user_id))
+        return {int(m) for m in members}
 
     async def queue_size(self, user_id: int) -> int:
         return await self.redis.llen(self._key(user_id))
@@ -41,4 +58,5 @@ class CacheService:
 
     async def clear_queue(self, user_id: int) -> None:
         await self.redis.delete(self._key(user_id))
+        await self.redis.delete(self._seen_key(user_id))
         logger.info("browse_cache_cleared", user_id=user_id)
