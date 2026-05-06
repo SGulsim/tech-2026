@@ -58,11 +58,42 @@
 
 **Важно:** В PostgreSQL dirty read невозможен даже при `READ UNCOMMITTED`. Движок MVCC (Multi-Version Concurrency Control) даёт каждой транзакции snapshot данных на момент начала. READ UNCOMMITTED в PG ведёт себя идентично READ COMMITTED.
 
-В MySQL без явной защиты на шаге t5 вернулось бы `balance = 0` — вот это и есть dirty read.
+---
+
+### Dirty Read в MySQL (воспроизведение аномалии)
+
+В MySQL с `READ UNCOMMITTED` dirty read реально происходит.
+
+![Dirty Read MySQL — демонстрация](./01.1_dirty_read_completed_scenarios.png)
+
+| Время | Session A (Terminal 1) | Session B (Terminal 2) |
+|-------|------------------------|------------------------|
+| t1 | `begin;` | |
+| t2 | `update accounts set balance = 0 where id = 1;` | |
+| t3 | | `set session transaction isolation level read uncommitted;` |
+| t4 | | `begin;` |
+| t5 | | `select id, name, balance from accounts where id = 1;` |
+| t6 | `rollback;` | |
+| t7 | | `select id, name, balance from accounts where id = 1;` |
+| t8 | | `commit;` |
+
+```
+-- Session B, шаг t5 (Session A ещё не закоммитила!):
+ id | name  | balance
+----+-------+---------
+  1 | Alice |    0.00   ← DIRTY READ: прочитали незакоммиченные данные
+
+-- Session B, шаг t7 (после rollback Session A):
+ id | name  | balance
+----+-------+---------
+  1 | Alice | 1000.00   ← данные на шаге t5 были "грязными"
+```
+
+Session B прочитала `balance = 0.00` — данные, которые Session A откатила. Это и есть dirty read: транзакция использовала значение, которое никогда не было зафиксировано в базе.
 
 ### Как избежать
 
-PostgreSQL защищает автоматически. В других СУБД (MySQL/MS SQL) — использовать уровень изоляции `READ COMMITTED` и выше.
+PostgreSQL защищает автоматически. В MySQL — использовать уровень изоляции `READ COMMITTED` и выше.
 
 ---
 
@@ -237,12 +268,12 @@ set transaction isolation level repeatable read;
 
 ## Сводная таблица аномалий
 
-| Аномалия | Уровень, при котором возникает | Уровень защиты в PG |
-|---|---|---|
-| Dirty Read | READ UNCOMMITTED | Невозможна (MVCC) |
-| Non-Repeatable Read | READ COMMITTED | REPEATABLE READ |
-| Phantom Read | READ COMMITTED | REPEATABLE READ (в PG) или SERIALIZABLE |
-| Lost Update | READ COMMITTED | Атомарный UPDATE или SELECT FOR UPDATE |
+| Аномалия | Уровень, при котором возникает | PostgreSQL | MySQL |
+|---|---|---|---|
+| Dirty Read | READ UNCOMMITTED | Невозможна (MVCC) | Происходит (продемонстрировано) |
+| Non-Repeatable Read | READ COMMITTED | REPEATABLE READ | READ COMMITTED |
+| Phantom Read | READ COMMITTED | REPEATABLE READ (в PG) или SERIALIZABLE | SERIALIZABLE |
+| Lost Update | READ COMMITTED | Атомарный UPDATE или SELECT FOR UPDATE | Атомарный UPDATE или SELECT FOR UPDATE |
 
 ---
 
