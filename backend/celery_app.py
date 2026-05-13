@@ -67,7 +67,8 @@ async def _async_recalculate(database_url: str) -> None:
 
             for profile_id in profile_ids:
                 try:
-                    await svc.calculate_and_save(profile_id)
+                    async with session.begin_nested():
+                        await svc.calculate_and_save(profile_id)
                     updated += 1
                 except Exception as exc:
                     errors += 1

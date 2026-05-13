@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.logging import get_logger
 from models.like import Like
 from models.match import Match
+from models.message import Message
 from models.profile import Profile
 from models.rating import Rating
 from models.user import User
@@ -64,7 +65,7 @@ class RatingService:
         return rating
 
     async def _calc_level2(self, profile_id: int, user_id: int) -> float:
-        # Количество лайков анкеты
+        # 1. Количество лайков анкеты
         likes_result = await self.db.execute(
             select(func.count()).where(
                 Like.to_profile_id == profile_id,
@@ -83,10 +84,10 @@ class RatingService:
         skips_count = skips_result.scalar() or 0
 
         total = likes_count + skips_count
-        # Соотношение лайков и пропусков
+        # 2. Соотношение лайков и пропусков
         like_ratio = likes_count / total if total > 0 else 0.5
 
-        # Частота взаимных лайков (мэтчей)
+        # 3. Частота взаимных лайков (мэтчей)
         matches_result = await self.db.execute(
             select(func.count()).where(
                 (Match.user1_id == user_id) | (Match.user2_id == user_id)
@@ -105,13 +106,34 @@ class RatingService:
             )
         )
         recent_likes = recent_result.scalar() or 0
-        recent_bonus = min(recent_likes * 2, 20)
+        recent_bonus = min(recent_likes * 2, 15)
+
+        # 4. Частота инициирования диалогов после мэтча
+        dialogs_result = await self.db.execute(
+            select(func.count(func.distinct(Message.match_id))).where(
+                Message.sender_user_id == user_id
+            )
+        )
+        dialogs_initiated = dialogs_result.scalar() or 0
+        dialog_rate = min(dialogs_initiated / max(match_count, 1), 1.0)
+
+        # 4а. Активность в прайм-тайм (18:00–23:00 UTC)
+        prime_result = await self.db.execute(
+            select(func.count()).where(
+                Message.sender_user_id == user_id,
+                func.extract("hour", Message.created_at).between(18, 23),
+            )
+        )
+        prime_msgs = prime_result.scalar() or 0
+        prime_bonus = min(prime_msgs * 2, 10)
 
         score = (
-            min(likes_count * 1.5, 30)  # вес лайков (макс 30)
-            + like_ratio * 30           # соотношение лайков/пропусков (макс 30)
-            + match_rate * 20           # частота мэтчей (макс 20)
-            + recent_bonus              # недавняя активность (макс 20)
+            min(likes_count * 1.5, 25)  # лайки (макс 25)
+            + like_ratio * 25           # соотношение лайков/пропусков (макс 25)
+            + match_rate * 15           # частота мэтчей (макс 15)
+            + recent_bonus              # недавняя активность (макс 15)
+            + dialog_rate * 10          # инициирование диалогов (макс 10)
+            + prime_bonus               # прайм-тайм активность (макс 10)
         )
         return min(score, 100.0)
 
@@ -121,7 +143,7 @@ class RatingService:
             select(func.count()).where(User.referrer_id == user_id)
         )
         referrals = result.scalar() or 0
-        return min(referrals * 5.0, 25.0)
+        return min(referrals * 20.0, 100.0)
 
     async def get_ranked_profiles(
         self,
