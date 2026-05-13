@@ -33,6 +33,11 @@ class RatingService:
         # Уровень 3: комбинированный рейтинг
         final = level1 * 0.35 + level2 * 0.50 + referral_bonus * 0.15
 
+        level1 = round(level1, 2)
+        level2 = round(level2, 2)
+        referral_bonus = round(referral_bonus, 2)
+        final = round(final, 2)
+
         rating_result = await self.db.execute(
             select(Rating).where(Rating.profile_id == profile_id)
         )
